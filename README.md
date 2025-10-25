@@ -56,7 +56,7 @@ DGX systems typically use NVIDIA Container Runtime:
 
 ```bash
 docker --version
-nvidia-docker --version  # or check nvidia-container-toolkit
+nvidia-container-toolkit --version
 ```
 
 ## Environment Configuration
@@ -266,7 +266,7 @@ model = AutoModelForCausalLM.from_pretrained(model_name).to("cuda")
 prompt = "The future of artificial intelligence is"
 inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
 outputs = model.generate(**inputs, max_length=100)
-print(tokenizer.decode(outputs[0]))
+print(tokenizer.decode(outputs[0], skip_special_tokens=True))
 ```
 
 ## Quick Start Examples
@@ -312,6 +312,7 @@ print(result[0]['generated_text'])
 ```python
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+import bitsandbytes  # Required for 8-bit quantization
 
 # Load model in 8-bit for memory efficiency
 model_name = "meta-llama/Llama-2-7b-hf"
@@ -324,7 +325,9 @@ model = AutoModelForCausalLM.from_pretrained(
 
 # Chat with the model
 def chat(prompt):
-    inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+    inputs = tokenizer(prompt, return_tensors="pt")
+    # device_map="auto" handles device placement automatically
+    inputs = {k: v.to(model.device) for k, v in inputs.items()}
     outputs = model.generate(**inputs, max_new_tokens=256)
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
