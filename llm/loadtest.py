@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Load test script for vLLM.
-Ramps concurrency from 1 → 1000, measuring total and per-thread tok/s at each level.
+Ramps concurrency from 1 → 1000, measuring total and 
+per-thread tok/s at each level.
+
 Outputs a PNG graph when complete.
 """
 
@@ -32,7 +34,15 @@ TIMEOUT_S   = 120     # per-request HTTP timeout
 # Concurrency levels to test (log-ish ramp 1 → 1000)
 LEVELS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1000]
 
-OUTPUT_PNG = "loadtest_results.png"
+import re
+
+def model_to_filename(model: str) -> str:
+    name = model.lower()
+    name = re.sub(r"[^a-z0-9.]+", "-", name)
+    name = name.strip("-")
+    return f"{name}.png"
+
+OUTPUT_PNG = "loadtest_results.png"  # overwritten after model discovery
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -147,6 +157,8 @@ def main():
 
     print("Discovering model...")
     MODEL = discover_model()
+    global OUTPUT_PNG
+    OUTPUT_PNG = model_to_filename(MODEL)
     print(f"  Model : {MODEL}")
     print(f"  Levels: {LEVELS}")
     print(f"  Prompt: {PROMPT[:60]}...")
