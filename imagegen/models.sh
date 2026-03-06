@@ -185,9 +185,30 @@ install_base() {
     
     # Basic upscaler
     download_model \
-        "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x_ESRGAN.pth" \
+        "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x4.pth" \
         "models/upscale_models/4x_ESRGAN.pth" \
         "4x ESRGAN Upscaler"
+    
+    # Required ComfyUI models (z_image_turbo)
+    print_status "Installing required ComfyUI models..."
+    
+    # Z Image Turbo Diffusion Model
+    download_model \
+        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors" \
+        "models/diffusion_models/z_image_turbo_bf16.safetensors" \
+        "Z Image Turbo Diffusion Model"
+    
+    # Z Image Turbo Text Encoder
+    download_model \
+        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors" \
+        "models/text_encoders/qwen_3_4b.safetensors" \
+        "Qwen Text Encoder"
+    
+    # Z Image Turbo VAE
+    download_model \
+        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
+        "models/vae/ae.safetensors" \
+        "Z Image Turbo VAE"
     
     print_status "Base models installation complete!"
 }
@@ -301,19 +322,19 @@ install_upscale() {
     
     # Real-ESRGAN 4x
     download_model \
-        "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x_ESRGAN.pth" \
+        "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x4.pth" \
         "models/upscale_models/4x_ESRGAN.pth" \
         "4x ESRGAN"
     
     # Real-ESRGAN 2x
     download_model \
-        "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/2x_ESRGAN.pth" \
+        "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x2.pth" \
         "models/upscale_models/2x_ESRGAN.pth" \
         "2x ESRGAN"
     
     # LDSR for high quality upscaling
     download_model \
-        "https://huggingface.co/uwg/upscaler/resolve/main/LDSR/LDSR.ckpt" \
+        "https://huggingface.co/CompVis/ldsr-generic/resolve/main/model.ckpt" \
         "models/upscale_models/LDSR.ckpt" \
         "LDSR Upscaler"
     

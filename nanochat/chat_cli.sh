@@ -153,13 +153,65 @@ fi
 export PYTORCH_ALLOC_CONF=max_split_size_mb:512
 export CUDA_LAUNCH_BLOCKING=0
 
+# Detect model size from checkpoint metadata
+CHECKPOINT_DIR=""
+case "$MODEL_SOURCE" in
+    rl) CHECKPOINT_DIR="$HOME/.cache/nanochat/chatrl_checkpoints" ;;
+    sft) CHECKPOINT_DIR="$HOME/.cache/nanochat/chatsft_checkpoints" ;;
+    mid) CHECKPOINT_DIR="$HOME/.cache/nanochat/mid_checkpoints" ;;
+    base) CHECKPOINT_DIR="$HOME/.cache/nanochat/base_checkpoints" ;;
+esac
+
+# Find a meta file to extract model info
+META_FILE=$(find "$CHECKPOINT_DIR" -name "meta_*.json" -type f | head -1)
+if [ -n "$META_FILE" ]; then
+    MODEL_INFO=$(python3 << PYTHON_EOF
+import json
+try:
+    with open('$META_FILE', 'r') as f:
+        meta = json.load(f)
+    model_config = meta.get('model_config', {})
+    n_layer = model_config.get('n_layer', 20)
+    n_embd = model_config.get('n_embd', 1280)
+    
+    # Calculate parameters (same formula as hf_prepare.sh)
+    vocab_size = model_config.get('vocab_size', 65536)
+    token_embedding_params = vocab_size * n_embd
+    output_head_params = vocab_size * n_embd
+    params_per_layer = 12 * n_embd * n_embd  # 4x for attention + 8x for MLP
+    total_params = token_embedding_params + (n_layer * params_per_layer) + output_head_params
+    
+    params_millions = total_params / 1_000_000
+    if params_millions >= 1000:
+        params_billions = total_params / 1_000_000_000
+        if params_billions >= 10:
+            params_display = f"{int(params_billions)}B"
+        else:
+            params_display = f"{params_billions:.1f}B"
+    else:
+        params_display = f"{int(params_millions)}M"
+    
+    print(f"{params_display}|{n_layer}|{n_embd}")
+except:
+    print("561M|20|1280")
+PYTHON_EOF
+)
+    PARAM_COUNT=$(echo "$MODEL_INFO" | cut -d'|' -f1)
+    N_LAYERS=$(echo "$MODEL_INFO" | cut -d'|' -f2)
+    N_EMBD=$(echo "$MODEL_INFO" | cut -d'|' -f3)
+else
+    PARAM_COUNT="561M"
+    N_LAYERS="20"
+    N_EMBD="1280"
+fi
+
 echo ""
 echo "Starting Nanochat CLI on DGX Spark..."
 echo ""
 echo "🤖 Your personal ChatGPT-like AI is starting up!"
 echo ""
 echo "Features of your trained model:"
-echo "  ✅ 1.9B parameters trained from scratch"
+echo "  ✅ ${PARAM_COUNT} parameters (${N_LAYERS} layers, ${N_EMBD} dim) trained from scratch"
 echo "  ✅ Optimized for DGX Spark's Grace Blackwell architecture"
 echo "  ✅ Fully yours - no API dependencies"
 echo "  ✅ Privacy-focused - runs locally on your hardware"

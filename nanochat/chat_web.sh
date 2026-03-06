@@ -19,6 +19,8 @@ TOP_K=50
 MAX_TOKENS=512
 HOST="0.0.0.0"
 DTYPE="bfloat16"
+RUN_AS_SERVER=false
+STOP_SERVER=false
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -51,6 +53,14 @@ while [[ $# -gt 0 ]]; do
             DTYPE="$2"
             shift 2
             ;;
+        --server)
+            RUN_AS_SERVER=true
+            shift
+            ;;
+        --stop)
+            STOP_SERVER=true
+            shift
+            ;;
         --help|-h)
             echo "NanoChat OpenAI-Compatible API Service"
             echo ""
@@ -64,11 +74,14 @@ while [[ $# -gt 0 ]]; do
             echo "  --max-tokens, -m     Default max tokens for generation (default: 512)"
             echo "  --host               Host to bind the server to (default: 0.0.0.0)"
             echo "  --dtype, -d          Data type: float32|bfloat16 (default: bfloat16)"
+            echo "  --server             Run as background server with logging"
+            echo "  --stop               Stop the running server"
             echo "  --help, -h           Show this help message"
             echo ""
             echo "Examples:"
             echo "  ./chat_web.sh --source sft --port 8000"
-            echo "  ./chat_web.sh --source rl --port 8001"
+            echo "  ./chat_web.sh --source rl --port 8001 --server"
+            echo "  ./chat_web.sh --stop"
             echo "  ./chat_web.sh -s mid -p 8002 -t 0.7"
             echo ""
             echo "After starting, use the OpenAI SDK to connect:"
@@ -88,6 +101,18 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Handle --stop option
+if [ "$STOP_SERVER" = true ]; then
+    echo "Stopping chat_web server..."
+    pkill -f "python -m scripts.chat_web"
+    if [ $? -eq 0 ]; then
+        echo "✓ Server stopped successfully"
+    else
+        echo "No running server found"
+    fi
+    exit 0
+fi
 
 # Check if we're in the nanochat directory and navigate to it
 if [ -d "nanochat" ]; then
@@ -184,6 +209,12 @@ echo "Max tokens:      $MAX_TOKENS"
 echo "Data type:       $DTYPE"
 echo "=========================================="
 echo ""
+
+if [ "$RUN_AS_SERVER" = false ]; then
+    echo "💡 Tip: Run with --server to start as background service"
+    echo ""
+fi
+
 echo "Starting web..."
 echo "API endpoint will be: http://$HOST:$PORT/v1/chat/completions"
 echo ""
@@ -199,4 +230,21 @@ CMD="$CMD --max-tokens $MAX_TOKENS"
 CMD="$CMD --dtype $DTYPE"
 
 # Run the service
-exec $CMD
+if [ "$RUN_AS_SERVER" = true ]; then
+    # Run as background server with logging
+    LOG_FILE="chat_web_${PORT}.log"
+    echo "Starting server in background..."
+    echo "Log file: $LOG_FILE"
+    echo "API endpoint: http://$HOST:$PORT/v1/chat/completions"
+    echo ""
+    echo "To stop the server, run: ./chat_web.sh --stop"
+    echo ""
+    
+    nohup $CMD > "$LOG_FILE" 2>&1 &
+    SERVER_PID=$!
+    echo "✓ Server started with PID: $SERVER_PID"
+    echo "  View logs: tail -f $LOG_FILE"
+else
+    # Run in foreground (interactive mode)
+    exec $CMD
+fi

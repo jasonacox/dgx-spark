@@ -13,6 +13,16 @@
 # Date: 2025-10-25
 # https://github.com/jasonacox/dgx-spark
 
+# Check if CUDA 13.0 is already installed
+if nvcc --version &>/dev/null && nvcc --version | grep -q "cuda_13"; then
+    echo "CUDA 13.0 is already installed. Skipping CUDA installation."
+    echo ""
+    echo "Setup already complete! Environment is ready for preparing the dataset and tokenizer."
+    echo ""
+    echo "To prepare the dataset and tokenizer, run: ./prepare.sh"
+    exit 0
+fi
+
 # Setup script for installing CUDA Toolkit on Ubuntu 24.04 ARM64
 # Download CUDA repository pin if not already present
 if [ ! -f cuda-ubuntu2404.pin ]; then

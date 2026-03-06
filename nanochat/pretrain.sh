@@ -5,7 +5,7 @@
 # to ensure training can run even if the user has logged out and back in.
 #
 # Usage:
-#   ./pretrain.sh              # Use default depth of 20 (~1.9B parameters)
+#   ./pretrain.sh              # Use default depth of 20 (~561M parameters)
 #   ./pretrain.sh --depth 16   # Use custom depth (16 = ~1B parameters)
 #   ./pretrain.sh --depth 24   # Use custom depth (24 = ~2.8B parameters)
 #
@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --depth, -d DEPTH         Model depth (number of layers, default: 20)"
-            echo "                            Depth 16 ≈ 1.0B params, 20 ≈ 1.9B params, 24 ≈ 2.8B params"
+            echo "                            Depth 16 ≈ 450M params (dim=1024), 20 ≈ 561M params (dim=1280), 24 ≈ 881M params (dim=1536)"
             echo "  --batch-size, -b SIZE     Device batch size (default: 32)"
             echo "                            Larger values use more memory but may train faster"
             echo "  --help, -h                Show this help message"

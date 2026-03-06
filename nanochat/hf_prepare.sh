@@ -19,7 +19,7 @@ echo -e "${BLUE}=== NanoChat HuggingFace Upload Preparation ===${NC}"
 echo ""
 
 # Model configuration
-MODEL_NAME="nanochat-1.8B"
+MODEL_NAME="nanochat-561M"
 AUTHOR_NAME=${HF_USERNAME:-"your-username"}
 AUTHOR_FULL_NAME=${HF_AUTHOR:-"Your Full Name"}
 OUTPUT_DIR="./hf_models"
@@ -47,7 +47,7 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
-            echo "  --name NAME          Model name (default: nanochat-1.8B)"
+            echo "  --name NAME          Model name (default: nanochat-561M)"
             echo "  --author AUTHOR      HuggingFace username (default: your-username)"
             echo "  --author-name NAME   Full author name for citations (default: Your Full Name)"
             echo "  --output DIR         Output directory (default: ./hf_models)"
@@ -59,7 +59,7 @@ while [[ $# -gt 0 ]]; do
             echo "  HF_TOKEN             Your HuggingFace API token"
             echo ""
             echo "Example:"
-            echo "  $0 --name nanochat-1.8B --author jasonacox --author-name 'Jason A. Cox'"
+            echo "  $0 --name nanochat-561M --author jasonacox --author-name 'Jason A. Cox'"
             exit 0
             ;;
         *)
@@ -102,9 +102,6 @@ prepare_model() {
     
     echo -e "${GREEN}📦 Preparing $phase model...${NC}"
     
-    local model_dir="$OUTPUT_DIR/${MODEL_NAME}-${phase}"
-    mkdir -p "$model_dir"
-    
     # Find the latest checkpoint
     local latest_checkpoint=$(find "$checkpoint_dir" -name "model_*.pt" | sort -V | tail -1)
     
@@ -117,6 +114,87 @@ prepare_model() {
     local step_num=$(basename "$latest_checkpoint" | grep -oP '\d+' | head -1)
     
     echo "  Found checkpoint at step $step_num"
+    
+    # Extract model configuration from meta.json and calculate parameters first
+    echo "  Extracting model configuration and calculating parameters..."
+    python3 << PYTHON_EOF
+import json
+import os
+
+# Read meta.json to get model dimensions
+with open('$checkpoint_base/meta_${step_num}.json', 'r') as f:
+    meta = json.load(f)
+
+step_num = int('${step_num}')  # Convert from string to avoid leading zero issues
+
+model_config = meta.get('model_config', {})
+n_layer = model_config.get('n_layer', 20)
+n_embd = model_config.get('n_embd', 1280) 
+n_head = model_config.get('n_head', 10)
+n_kv_head = model_config.get('n_kv_head', 10)
+vocab_size = model_config.get('vocab_size', 65536)
+sequence_len = model_config.get('sequence_len', 2048)
+
+# Calculate parameters based on nanochat architecture
+# Formula based on GPT model structure:
+# - Token embedding: vocab_size * n_embd
+# - Each transformer layer has:
+#   - Attention: 4 * n_embd^2 (QKV projections + output)
+#   - MLP: 8 * n_embd^2 (up/down projections with 4x hidden size)
+# - Output head: vocab_size * n_embd (unembedded)
+# - Note: RMSNorm has no learnable parameters in this implementation
+
+token_embedding_params = vocab_size * n_embd
+output_head_params = vocab_size * n_embd
+
+# Per layer parameters
+attention_params_per_layer = 4 * n_embd * n_embd  # Q, K, V, output projections
+mlp_params_per_layer = 8 * n_embd * n_embd        # up and down projections (4x hidden size)
+params_per_layer = attention_params_per_layer + mlp_params_per_layer
+
+total_transformer_params = n_layer * params_per_layer
+total_params = token_embedding_params + total_transformer_params + output_head_params
+
+# Convert to appropriate scale (M or B) for display
+params_millions = total_params / 1_000_000
+
+if params_millions >= 1000:
+    # Use billions for 1B+ models
+    params_billions = total_params / 1_000_000_000
+    if params_billions >= 10:
+        params_display = f"{params_billions:.0f}B"
+    else:
+        params_display = f"{params_billions:.1f}B"
+else:
+    # Use millions for sub-1B models
+    params_display = f"{params_millions:.0f}M"
+
+# Save extracted values to temporary file for bash to read
+with open('model_config.tmp', 'w') as f:
+    f.write(f"N_LAYER={n_layer}\\n")
+    f.write(f"N_EMBD={n_embd}\\n") 
+    f.write(f"N_HEAD={n_head}\\n")
+    f.write(f"N_KV_HEAD={n_kv_head}\\n")
+    f.write(f"VOCAB_SIZE={vocab_size}\\n")
+    f.write(f"SEQUENCE_LEN={sequence_len}\\n")
+    f.write(f"TOTAL_PARAMS={int(total_params)}\\n")
+    f.write(f"TOTAL_PARAMS_FORMATTED={total_params:,}\\n")
+    f.write(f"PARAMS_DISPLAY={params_display}\\n")
+    f.write(f"STEP_NUM={step_num}\\n")
+
+print(f"Model configuration: {n_layer} layers, {n_embd} dim, {n_head} heads")
+print(f"Calculated parameters: {total_params:,} ({params_display})")
+PYTHON_EOF
+
+    # Source the extracted configuration
+    source model_config.tmp
+    rm model_config.tmp
+    
+    # Create model directory with proper naming: nanochat-d{depth}-{params}-{phase}
+    local model_name="nanochat-d${N_LAYER}-${PARAMS_DISPLAY}-${phase}"
+    local model_dir="$OUTPUT_DIR/${model_name}"
+    mkdir -p "$model_dir"
+    echo "  Creating model directory: $model_name"
     
     # Copy model files
     cp "$checkpoint_base/model_${step_num}.pt" "$model_dir/"
@@ -143,16 +221,16 @@ language:
 pipeline_tag: text-generation
 ---
 
-# ${MODEL_NAME}-${phase}
+# ${model_name}
 
 ${description}
 
 ## Model Details
 
 - **Model Type:** GPT-style transformer trained from scratch
-- **Parameters:** ~1.9 billion
+- **Parameters:** ${PARAMS_DISPLAY} (${TOTAL_PARAMS_FORMATTED})
 - **Training Phase:** ${phase}
-- **Architecture:** 20 layers, 1280 embedding dimension
+- **Architecture:** ${N_LAYER} layers, ${N_EMBD} embedding dimension, ${N_HEAD} attention heads
 - **Hardware:** NVIDIA DGX Spark (Grace Blackwell GB10)
 - **Framework:** [NanoChat](https://github.com/karpathy/nanochat)
 - **Training Precision:** BFloat16
@@ -272,7 +350,7 @@ This model was trained using the DGX Spark optimized training pipeline:
 
 ## Limitations
 
-- This is a micro-model (1.9B parameters) - smaller than commercial LLMs
+- This is a micro-model (${PARAMS_DISPLAY}) - smaller than commercial LLMs
 - May make factual errors or hallucinate
 - Limited knowledge cutoff from training data
 - Best suited for educational purposes and experimentation
@@ -280,12 +358,12 @@ This model was trained using the DGX Spark optimized training pipeline:
 ## Citation
 
 \`\`\`bibtex
-@misc{${MODEL_NAME},
+@misc{${model_name},
   author = {${AUTHOR_FULL_NAME}},
-  title = {${MODEL_NAME}-${phase}},
-  year = {2025},
+  title = {${model_name}},
+  year = {$(date +%Y)},
   publisher = {HuggingFace},
-  howpublished = {\url{https://huggingface.co/${AUTHOR_NAME}/${MODEL_NAME}-${phase}}}
+  howpublished = {\url{https://huggingface.co/${AUTHOR_NAME}/${model_name}}}
 }
 \`\`\`
 
@@ -297,7 +375,7 @@ This model was trained using the DGX Spark optimized training pipeline:
 
 ## License
 
-MIT License - Free to use for research and educational purposes
+MIT License - see LICENSE file for details.
 EOF
 
     # Create config.json (HuggingFace model card metadata)
@@ -305,14 +383,15 @@ EOF
 {
   "model_type": "nanochat",
   "architecture": "gpt",
-  "n_layer": 20,
-  "n_head": 10,
-  "n_kv_head": 10,
-  "n_embd": 1280,
-  "vocab_size": 65536,
-  "sequence_len": 2048,
+  "n_layer": ${N_LAYER},
+  "n_head": ${N_HEAD},
+  "n_kv_head": ${N_KV_HEAD},
+  "n_embd": ${N_EMBD},
+  "vocab_size": ${VOCAB_SIZE},
+  "sequence_len": ${SEQUENCE_LEN},
+  "total_parameters": ${TOTAL_PARAMS},
   "phase": "${phase}",
-  "checkpoint_step": ${step_num},
+  "checkpoint_step": ${STEP_NUM},
   "torch_dtype": "bfloat16"
 }
 EOF
@@ -323,6 +402,31 @@ EOF
 *.pth filter=lfs diff=lfs merge=lfs -text
 *.bin filter=lfs diff=lfs merge=lfs -text
 *.safetensors filter=lfs diff=lfs merge=lfs -text
+EOF
+
+    # Create LICENSE file
+    cat > "$model_dir/LICENSE" << EOF
+MIT License
+
+Copyright (c) $(date +%Y) ${AUTHOR_FULL_NAME}
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 EOF
 
     echo -e "${GREEN}✓ Prepared $phase model in $model_dir${NC}"

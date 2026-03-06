@@ -37,7 +37,7 @@ export LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:${LD_LIBRARY_PATH}
 
 # Create directory structure
 echo "📁 Creating directory structure..."
-mkdir -p models/{checkpoints,vae,loras,controlnet,upscale_models,embeddings,clip_vision,clip,unet,diffusion_models,gligen,style_models,photomaker}
+mkdir -p models/{checkpoints,vae,loras,controlnet,upscale_models,embeddings,clip_vision,clip,unet,diffusion_models,gligen,style_models,photomaker,text_encoders}
 mkdir -p input
 mkdir -p output
 mkdir -p temp
@@ -79,12 +79,38 @@ echo "✅ Verifying PyTorch CUDA installation..."
 python3 -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA version: {torch.version.cuda}'); print(f'GPU count: {torch.cuda.device_count()}')"
 
 # Clone ComfyUI repository
-echo "📥 Cloning ComfyUI repository..."
+echo "📥 Setting up ComfyUI repository..."
 if [ -d "ComfyUI" ]; then
-    echo "   ComfyUI directory already exists. Updating..."
+    echo "   ComfyUI directory already exists. Checking if it's a valid git repository..."
     cd ComfyUI/
-    git pull origin master
+    
+    # Check if it's a valid git repository
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "   Valid git repository found. Preparing for update..."
+        
+        # Handle potential conflicts (like symbolic links) before pulling
+        if [ -L "models" ]; then
+            echo "   Removing symbolic link 'models' to avoid conflicts..."
+            rm -f models
+        elif [ -d "models" ] || [ -f "models" ]; then
+            echo "   Moving conflicting 'models' to avoid conflicts..."
+            mv models models.backup.$(date +%s)
+        fi
+        
+        # Reset any uncommitted changes and pull
+        echo "   Updating repository..."
+        git reset --hard HEAD
+        git clean -fd
+        git pull origin master
+    else
+        echo "   Invalid ComfyUI directory found. Removing and re-cloning..."
+        cd ..
+        rm -rf ComfyUI
+        git clone https://github.com/comfyanonymous/ComfyUI.git
+        cd ComfyUI/
+    fi
 else
+    echo "   Cloning ComfyUI repository..."
     git clone https://github.com/comfyanonymous/ComfyUI.git
     cd ComfyUI/
 fi
@@ -105,13 +131,28 @@ pip install accelerate xformers safetensors transformers diffusers
 
 # Download and install ComfyUI Manager (for easy extension management)
 echo "🔧 Installing ComfyUI Manager..."
+if [ ! -d "custom_nodes" ]; then
+    mkdir -p custom_nodes
+fi
 cd custom_nodes/
+
 if [ -d "ComfyUI-Manager" ]; then
-    echo "   ComfyUI Manager already exists. Updating..."
+    echo "   ComfyUI Manager directory already exists. Checking if it's a valid git repository..."
     cd ComfyUI-Manager/
-    git pull origin main
+    
+    # Check if it's a valid git repository
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "   Valid git repository found. Updating..."
+        git pull origin main
+    else
+        echo "   Invalid ComfyUI-Manager directory found. Removing and re-cloning..."
+        cd ..
+        rm -rf ComfyUI-Manager
+        git clone https://github.com/ltdrdata/ComfyUI-Manager.git
+    fi
     cd ..
 else
+    echo "   Cloning ComfyUI Manager repository..."
     git clone https://github.com/ltdrdata/ComfyUI-Manager.git
 fi
 cd ..
@@ -125,21 +166,22 @@ ln -sf ../models models
 echo "⚙️  Creating DGX Spark optimization config..."
 cat > extra_model_paths.yaml << EOF
 # DGX Spark Grace Blackwell optimization paths
-base_path: ../models/
-
-checkpoints: checkpoints/
-vae: vae/
-loras: loras/
-controlnet: controlnet/
-upscale_models: upscale_models/
-embeddings: embeddings/
-clip_vision: clip_vision/
-clip: clip/
-unet: unet/
-diffusion_models: diffusion_models/
-gligen: gligen/
-style_models: style_models/
-photomaker: photomaker/
+comfyui:
+    base_path: ../models/
+    checkpoints: checkpoints/
+    vae: vae/
+    loras: loras/
+    controlnet: controlnet/
+    upscale_models: upscale_models/
+    embeddings: embeddings/
+    clip_vision: clip_vision/
+    clip: clip/
+    text_encoders: text_encoders/
+    unet: unet/
+    diffusion_models: diffusion_models/
+    gligen: gligen/
+    style_models: style_models/
+    photomaker: photomaker/
 EOF
 
 # Set up memory optimization for 128GB unified memory

@@ -4,10 +4,10 @@
 
 or
 
-> "The best ChatGPT that $8 can buy" - [DGX Spark Costs](https://github.com/jasonacox/dgx-spark/blob/main/nanochat/README.md#costs)
+> "The best ChatGPT that $8 can buy" - Jason Cox (see [DGX Spark Costs](https://github.com/jasonacox/dgx-spark/blob/main/nanochat/README.md#costs))
 
 
-This project provides a complete setup for training a Large Language Model (LLM) from scratch using the [Nanochat framework](https://github.com/karpathy/nanochat) created by [Andrej Karpathy](https://github.com/karpathy). This version has been specifically optimized for the **Nvidia DGX Spark** platform. The setup leverages the unique capabilities of the DGX Spark's Grace Blackwell GB10 GPU architecture with 128GB unified memory, making it ideal for training the 1.9B parameter model despite the GB10's moderate compute power.
+This project provides a complete setup for training a Large Language Model (LLM) from scratch using the [Nanochat framework](https://github.com/karpathy/nanochat) created by [Andrej Karpathy](https://github.com/karpathy). This version has been specifically optimized for the **Nvidia DGX Spark** platform. The setup leverages the unique capabilities of the DGX Spark's Grace Blackwell GB10 GPU architecture with 128GB unified memory, making it ideal for training the 561M parameter model despite the GB10's moderate compute power.
 
 ## Overview
 
@@ -258,13 +258,73 @@ Example Models:
 
 ---
 
-## System Requirements
+## 2-Spark Cluster Training
 
-- **Hardware**: Nvidia DGX Spark with Grace Blackwell GB10 GPU
-- **Memory**: 128GB unified memory (fully utilized for optimal training)
-- **OS**: Ubuntu 24.04 ARM64
-- **CUDA**: 13.0 (automatically installed and optimized for Grace Blackwell)
-- **Storage**: Several GB for datasets, models, and dependencies
+For faster training, you can connect two DGX Spark systems together using InfiniBand to create a distributed training cluster. This setup allows you to leverage both GPUs and significantly reduces training time.
+
+### Setup
+
+**Network Configuration**: Connect the two DGX Sparks together with an InfiniBand (IB) cable. Ensure the master node can SSH to the worker node over the IB connection. This initial networking setup can take some time to configure properly and will result in IB IP addresses being assigned to both master and worker nodes.
+
+You will use these IB IP addresses (or create entries in `/etc/hosts` for them) for the rest of the setup. For example, add to `/etc/hosts`:
+
+```
+10.0.0.1    spark-master-ib
+10.0.0.2    spark-worker-ib
+```
+
+### Training Steps
+
+**Step 1 - Prepare Master Node**: Set up the master node exactly as you would for single-node training using the setup and prepare scripts:
+
+```bash
+# On master node
+./setup.sh
+./prepare.sh
+```
+
+**Step 2 - Sync Data to Worker**: Run the `create-worker.sh` script to copy all necessary data from the master to the worker node:
+
+```bash
+# On master node
+./create-worker.sh spark-worker-ib
+```
+
+This script will synchronize the nanochat directory, datasets, and cache to the worker node over the IB connection.
+
+**Step 3 - Pretraining**: Run the distributed pretraining scripts:
+
+```bash
+# On master node
+./pretrain-master.sh spark-worker-ib
+```
+
+The master script will display the exact command to run on the worker node, including all parameters:
+
+```bash
+# On worker node (copy the command output from master)
+# Example output from master:
+./pretrain-worker.sh 169.254.147.5 --depth 20 --batch-size 32 --port 29500
+```
+
+**Step 4 - Midtraining**: Run the distributed midtraining scripts similarly:
+
+```bash
+# On master node
+./midtrain-master.sh spark-worker-ib
+
+# On worker node (copy the command output from master)
+# Example output from master:
+./midtrain-worker.sh 169.254.147.5 --depth 24 --batch-size 32 --port 29501
+```
+
+The master script automatically passes all training parameters to the worker command, ensuring both nodes use identical settings.
+
+### Model Storage
+
+Models will be stored in `~/.cache/nanochat` on the master node. The worker node is used purely for distributed computation and does not maintain its own copy of trained models.
+
+---
 
 ## Customizing Training
 

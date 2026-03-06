@@ -63,6 +63,7 @@ start_server() {
             --ulimit memlock=-1 --ulimit stack=67108864 \
             -v ~/.cache/huggingface:/root/.cache/huggingface \
             -v ~/.cache/vllm:/root/.cache/vllm \
+	        --restart unless-stopped \
             ${IMAGE_NAME} \
             vllm serve "${MODEL}" --max-model-len "${MAX_LEN}" --chat-template-content-format "openai"
         
