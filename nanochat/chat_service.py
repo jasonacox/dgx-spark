@@ -393,6 +393,7 @@ async def chat_completions(request: ChatCompletionRequest):
 
     request_id = f"chatcmpl-{random.randint(1000000, 9999999)}"
     created = int(time.time())
+    handed_off = False
 
     try:
         # Build conversation tokens
@@ -468,53 +469,54 @@ async def chat_completions(request: ChatCompletionRequest):
                 finally:
                     await worker_pool.release_worker(worker)
 
+            handed_off = True
             return StreamingResponse(
                 stream_response(),
                 media_type="text/event-stream"
             )
         else:
             # Non-streaming response
-            try:
-                completion_text = ""
-                completion_tokens = 0
-                
-                async for text_chunk, token_count in generate_stream(
-                    worker,
-                    conversation_tokens,
-                    temperature=request.temperature,
-                    max_new_tokens=request.max_tokens,
-                    top_k=request.top_k
-                ):
-                    completion_text += text_chunk
-                    completion_tokens = token_count
-                
-                response = ChatCompletionResponse(
-                    id=request_id,
-                    created=created,
-                    model=request.model,
-                    choices=[
-                        ChatCompletionResponseChoice(
-                            index=0,
-                            message=ChatMessage(role="assistant", content=completion_text),
-                            finish_reason="stop"
-                        )
-                    ],
-                    usage=Usage(
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        total_tokens=prompt_tokens + completion_tokens
+            completion_text = ""
+            completion_tokens = 0
+            
+            async for text_chunk, token_count in generate_stream(
+                worker,
+                conversation_tokens,
+                temperature=request.temperature,
+                max_new_tokens=request.max_tokens,
+                top_k=request.top_k
+            ):
+                completion_text += text_chunk
+                completion_tokens = token_count
+            
+            response = ChatCompletionResponse(
+                id=request_id,
+                created=created,
+                model=request.model,
+                choices=[
+                    ChatCompletionResponseChoice(
+                        index=0,
+                        message=ChatMessage(role="assistant", content=completion_text),
+                        finish_reason="stop"
                     )
+                ],
+                usage=Usage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=prompt_tokens + completion_tokens
                 )
-                
-                logger.info(f"Response (GPU {worker.gpu_id}): {completion_tokens} tokens")
-                return response
-            finally:
-                await worker_pool.release_worker(worker)
+            )
+            
+            logger.info(f"Response (GPU {worker.gpu_id}): {completion_tokens} tokens")
+            return response
 
     except Exception as e:
-        await worker_pool.release_worker(worker)
         logger.error(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # The streaming generator releases the worker itself once handed off
+        if not handed_off:
+            await worker_pool.release_worker(worker)
 
 @app.get("/v1/models")
 async def list_models() -> ModelList:
